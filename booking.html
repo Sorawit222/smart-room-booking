@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Room Booking (Real-time Integrated)</title>
+    <title>Smart Room Booking (Weekly View)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -49,46 +49,99 @@
         ];
 
         const TIME_SLOTS = [
-            { label: "09.00–11.30", start: "09:00", end: "11:30" },
-            { label: "12.00–14.30", start: "12:00", end: "14:30" },
-            { label: "15.00–17.30", start: "15:00", end: "17:30" }
+            { label: "09.00–11.30", sub: "3 หน่วยกิต (150 นาที)", start: "09:00", end: "11:30" },
+            { label: "12.00–14.30", sub: "3 หน่วยกิต (150 นาที)", start: "12:00", end: "14:30" },
+            { label: "15.00–17.30", sub: "3 หน่วยกิต (150 นาที)", start: "15:00", end: "17:30" },
+            { label: "18.00–20.30", sub: "3 หน่วยกิต (150 นาที)", start: "18:00", end: "20:30" },
         ];
 
         const DAYS = [
-            { label: "จันทร์", index: 1 },
-            { label: "อังคาร", index: 2 },
-            { label: "พุธ", index: 3 },
-            { label: "พฤหัส", index: 4 },
-            { label: "ศุกร์", index: 5 }
+            { label: "จันทร์", offset: 0 },
+            { label: "อังคาร", offset: 1 },
+            { label: "พุธ", offset: 2 },
+            { label: "พฤหัส", offset: 3 },
+            { label: "ศุกร์", offset: 4 },
+            { label: "เสาร์", offset: 5 },
+            { label: "อาทิตย์", offset: 6 }
         ];
 
-        // --- HELPERS FROM REAL-TIME CODE ---
-        const isTimeOverlap = (s1, e1, s2, e2) => {
-            return s1 < e2 && s2 < e1;
+        // --- HELPERS ---
+
+        // แก้ไขใหม่: รองรับทั้ง String ธรรมดา และ ISO Date String จาก Google Sheets
+        const parseTime = (val) => {
+            if (!val) return 0;
+            
+            // กรณี Google ส่งมาเป็นรูปแบบ Date String (มีตัว T) เช่น "1899-12-30T09:00:00.000Z"
+            if (typeof val === 'string' && val.includes('T')) {
+                const dateObj = new Date(val);
+                // ต้องใช้ getUTCHours ถ้า time zone ใน sheet เป็น UTC หรือใช้ getHours ตามปกติ
+                // แนะนำใช้ getHours() ปกติเพราะ Browser จะแปลง Local ให้
+                return (dateObj.getHours() * 60) + dateObj.getMinutes();
+            }
+
+            // กรณีส่งมาเป็น String ธรรมดา "09:00"
+            if (typeof val === 'string' && val.includes(':')) {
+                const [h, m] = val.split(':').map(Number);
+                return (h * 60) + m;
+            }
+            
+            return 0;
         };
 
-        // แก้ไขฟังก์ชันนี้ (อยู่ด้านบนๆ ของ script)
-const isSlotBusy = (bookings, dayIndex, slotStart, slotEnd, roomId) => {
-    // เพิ่มการเช็ค !Array.isArray(bookings) เข้าไป
-    if (!bookings || !Array.isArray(bookings)) return false; 
-    
-    return bookings.some(b => {
-        if (b.status !== 'approved') return false; 
-        const d = new Date(b.date).getDay();
-        return (
-            d === dayIndex &&
-            b.room === roomId &&
-            isTimeOverlap(b.timeStart, b.timeEnd, slotStart, slotEnd)
-        );
-    });
-};
+        // หาว่าเป็นวันเดียวกันหรือไม่ (แก้ให้รองรับ Date Object ที่อาจมี Timezone ต่างกัน)
+        const isSameDay = (d1, d2) => {
+            return d1.getFullYear() === d2.getFullYear() &&
+                   d1.getMonth() === d2.getMonth() &&
+                   d1.getDate() === d2.getDate();
+        };
 
-        // --- MAIN APP ---
+        // เช็คเวลาชนกัน โดยใช้ตัวเลขนาที (แม่นยำกว่า String)
+        const isTimeOverlap = (s1, e1, s2, e2) => {
+            const start1 = parseTime(s1);
+            const end1 = parseTime(e1);
+            const start2 = parseTime(s2);
+            const end2 = parseTime(e2);
+            
+            return start1 < end2 && start2 < end1;
+        };
+
+        const isSlotBusy = (bookings, targetDate, slotStart, slotEnd, roomId) => {
+            if (!bookings || !Array.isArray(bookings)) return false; 
+            
+            return bookings.some(b => {
+                // ต้องเป็น status 'approved' เท่านั้น
+                if (b.status !== 'approved') return false; 
+                
+                // แปลงวันที่จาก String/ISO เป็น Date Object
+                const bookingDate = new Date(b.date);
+                
+                // เช็ค: วันเดียวกัน + ห้องเดียวกัน + เวลาชนกัน
+                return (
+                    isSameDay(bookingDate, targetDate) && 
+                    // แปลง roomId เป็น String ทั้งคู่เพื่อความชัวร์
+                    String(b.room) === String(roomId) &&
+                    isTimeOverlap(b.timeStart, b.timeEnd, slotStart, slotEnd)
+                );
+            });
+        };
+
+        // หา "วันจันทร์" ของสัปดาห์นั้นๆ จากวันที่ปัจจุบัน
+        const getMonday = (d) => {
+            d = new Date(d);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+            return new Date(d.setDate(diff));
+        };
+
         const App = () => {
             const [currentStep, setCurrentStep] = React.useState(1);
+            
+            // *State สำหรับเลือกสัปดาห์ (เก็บวันจันทร์ของสัปดาห์นั้น)*
+            const [currentWeekStart, setCurrentWeekStart] = React.useState(getMonday(new Date()));
+
             const [formData, setFormData] = React.useState({
                 date: '',
-                room: '1-201', // Default room
+                room: '1-201', 
                 timeStart: '',
                 timeEnd: '',
                 name: '',
@@ -106,121 +159,96 @@ const isSlotBusy = (bookings, dayIndex, slotStart, slotEnd, roomId) => {
                 return date.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
             };
 
+            const formatShortDate = (dateObj) => {
+                return dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+            };
+
+            // ฟังก์ชันเลื่อนสัปดาห์
+            const handleWeekChange = (offset) => {
+                const newDate = new Date(currentWeekStart);
+                newDate.setDate(newDate.getDate() + (offset * 7));
+                setCurrentWeekStart(newDate);
+            };
+
             const handleNext = () => { if (currentStep < 4) setCurrentStep(currentStep + 1); };
             const handleBack = () => { if (currentStep > 1) setCurrentStep(currentStep - 1); };
             
-           // แก้ไขฟังก์ชันนี้ในโค้ดเดิม
-const fetchLatestStatus = async () => {
-    setIsLoading(true);
-    try {
-        const response = await fetch(API_URL + "?action=read");
-        
-        // อ่านเป็น text ก่อนเพื่อกัน error กรณี Google ส่ง HTML มา
-        const textData = await response.text();
-        
-        try {
-            const data = JSON.parse(textData);
-            
-            // เช็คว่าเป็น Array จริงๆ ถึงจะยอมให้ set state
-            if (Array.isArray(data)) {
-                setServerBookings(data);
-            } else {
-                console.warn("Data format is not an array:", data);
-                setServerBookings([]); // กันหน้าขาวด้วยการใส่ array ว่าง
-            }
-        } catch (jsonError) {
-            console.error("JSON Parse Error. Server returned:", textData);
-            // กรณีนี้มักเกิดจาก Google Script error หรือ Permission ไม่ผ่าน
-        }
+            const fetchLatestStatus = async () => {
+                setIsLoading(true);
+                try {
+                    const response = await fetch(API_URL + "?action=read");
+                    const textData = await response.text();
+                    try {
+                        const data = JSON.parse(textData);
+                        if (Array.isArray(data)) {
+                            setServerBookings(data);
+                        } else {
+                            setServerBookings([]);
+                        }
+                    } catch (jsonError) {
+                        console.error("JSON Parse Error:", textData);
+                    }
+                } catch (error) {
+                    console.error("Fetch error:", error);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
 
-    } catch (error) {
-        console.error("Fetch error:", error);
-    } finally {
-        setIsLoading(false);
-    }
-};
-
-            // โหลดข้อมูลทันทีเมื่อเปิดเว็บ (เพื่อใช้แสดงในตาราง Step 1)
             React.useEffect(() => {
                 fetchLatestStatus();
             }, []);
 
-            // โหลดซ้ำเมื่อไปหน้าสุดท้าย
             React.useEffect(() => {
                 if (currentStep === 4) {
                     fetchLatestStatus();
                 }
             }, [currentStep]);
 
-            // --- แทนที่ฟังก์ชัน handleSubmit เดิมด้วยอันนี้ ---
-const handleSubmit = async () => {
-    const newBooking = {
-        id: Date.now(),
-        ...formData,
-        status: 'pending'
-    };
+            const handleSubmit = async () => {
+                const newBooking = {
+                    id: Date.now(),
+                    ...formData,
+                    status: 'pending'
+                };
+                setNotification('กำลังส่งข้อมูล...');
+                setIsLoading(true);
 
-    // 1. แจ้งเตือนผู้ใช้
-    setNotification('กำลังส่งข้อมูล... (กด F12 ดู Console หากค้างนาน)');
-    setIsLoading(true);
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+                        body: JSON.stringify(newBooking)
+                    });
 
-    // 2. Log ข้อมูลที่จะส่งให้เราเห็นก่อน (DEBUG)
-    console.log("🚀 1. กำลังส่งข้อมูล:", newBooking);
+                    if (!response.ok) throw new Error(`Status: ${response.status}`);
+                    const textResponse = await response.text();
+                    
+                    let result;
+                    try { result = JSON.parse(textResponse); } catch (e) { throw new Error("Server Error"); }
 
-    try {
-        // เปลี่ยน Header เป็น text/plain เพื่อลดปัญหา CORS กับ Google Script
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-            body: JSON.stringify(newBooking)
-        });
+                    if (result.result === 'error') throw new Error(result.message);
 
-        // 3. Log สถานะการเชื่อมต่อ (DEBUG)
-        console.log("📡 2. ได้รับ Response Status:", response.status);
+                    setMyBookings([newBooking]); 
+                    setNotification('บันทึกการจองสำเร็จ!');
+                    setCurrentStep(4);
+                    setTimeout(() => fetchLatestStatus(), 2000);
 
-        if (!response.ok) {
-            throw new Error(`การเชื่อมต่อล้มเหลว (Status: ${response.status})`);
-        }
+                } catch (error) {
+                    console.error("Error:", error);
+                    setNotification('เกิดข้อผิดพลาด: ' + error.message);
+                    alert('เกิดข้อผิดพลาด: ' + error.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
 
-        // 4. อ่านข้อความที่ Server ตอบกลับมาจริงๆ (สำคัญมาก!)
-        const textResponse = await response.text();
-        console.log("📥 3. Server ตอบกลับมาว่า:", textResponse);
-
-        // ลองแปลงเป็น JSON
-        let result;
-        try {
-            result = JSON.parse(textResponse);
-        } catch (e) {
-            // ถ้าแปลงไม่ได้ แสดงว่า Server ส่ง Error HTML กลับมา (เช่น หน้า Login หรือหน้า Error ของ Google)
-            console.error("❌ Parse JSON ไม่ได้. ข้อความดิบ:", textResponse);
-            throw new Error("Server ไม่ได้ตอบกลับเป็น JSON (อาจติดสิทธิ์เข้าถึง หรือ URL ผิด)");
-        }
-
-        // 5. เช็คว่า Script เราตอบว่า error หรือไม่
-        if (result.result === 'error') {
-            throw new Error("Script แจ้งเตือน: " + (result.message || result.error));
-        }
-
-        // --- ถ้าผ่านทุกด่าน ---
-        console.log("✅ 4. บันทึกสำเร็จ!");
-        setMyBookings([newBooking]); 
-        setNotification('บันทึกการจองสำเร็จ!');
-        setCurrentStep(4);
-        setTimeout(() => fetchLatestStatus(), 2000);
-
-    } catch (error) {
-        // แสดง Error เต็มๆ ทั้งใน Console และหน้าจอ
-        console.error("❌ FINAL ERROR:", error);
-        setNotification('❌ เกิดข้อผิดพลาด: ' + error.message);
-        alert('เกิดข้อผิดพลาด: ' + error.message + '\n(กด F12 เพื่อดูรายละเอียดเพิ่มเติมใน Console)');
-    } finally {
-        setIsLoading(false);
-    }
-};
-
-            // รวมข้อมูลเพื่อแสดงใน Step 4
             const displayBookings = serverBookings.length > 0 ? serverBookings : myBookings;
             const recentBookings = [...displayBookings].sort((a, b) => String(b.id).localeCompare(String(a.id))).slice(0, 5);
+
+            // คำนวณวันที่สิ้นสุดสัปดาห์เพื่อแสดงผล
+            const weekEndDate = new Date(currentWeekStart);
+            weekEndDate.setDate(weekEndDate.getDate() + 6);
 
             return (
                 <div className="min-h-screen flex flex-col">
@@ -233,7 +261,7 @@ const handleSubmit = async () => {
                                 </div>
                                 <div>
                                     <h1 className="text-xl font-bold">Smart Room Booking</h1>
-                                    <p className="text-blue-100 text-xs">มหาวิทยาลัยศรีปทุม ขอนแก่น (Real-time)</p>
+                                    <p className="text-blue-100 text-xs">มหาวิทยาลัยศรีปทุม ขอนแก่น (Weekly View)</p>
                                 </div>
                             </div>
                             <div className="text-sm bg-blue-700 px-3 py-1 rounded-full hidden sm:block">
@@ -267,22 +295,20 @@ const handleSubmit = async () => {
 
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[500px] flex flex-col">
                             
-                            {/* Step 1: Check Availability (INTEGRATED REAL-TIME LOGIC) */}
+                            {/* Step 1: Check Availability */}
                             {currentStep === 1 && (
                                 <div className="p-6 animate-fadeIn">
                                     <div className="flex justify-between items-start mb-4">
                                         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                                             <SearchIcon className="w-6 h-6 text-blue-500" />
-                                            ขั้นตอนที่ 1: ตรวจสอบตารางห้องว่าง
+                                            ตรวจสอบตารางห้องว่าง
                                         </h2>
                                         <button onClick={fetchLatestStatus} className="text-blue-600 text-sm flex items-center hover:underline">
                                            <RefreshIcon className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} /> รีเฟรช
                                         </button>
                                     </div>
                                     
-                                    <p className="text-slate-500 mb-6">ข้อมูลอัปเดต Real-time จากระบบอนุมัติ กรุณาเลือกห้องที่ต้องการตรวจสอบ</p>
-                                    
-                                    {/* Room Selector inside Step 1 */}
+                                    {/* Room Selector */}
                                     <div className="mb-6">
                                         <label className="block text-sm font-medium text-slate-700 mb-2">เลือกห้องที่ต้องการดูตาราง:</label>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -303,48 +329,82 @@ const handleSubmit = async () => {
                                         </div>
                                     </div>
 
+                                    {/* --- Week Selector (New Feature) --- */}
+                                    <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-100 mb-4">
+                                        <button onClick={() => handleWeekChange(-1)} className="p-2 hover:bg-white rounded-full text-blue-600 transition-colors shadow-sm">
+                                            <ChevronLeftIcon className="w-5 h-5" />
+                                        </button>
+                                        <div className="text-center">
+                                            <div className="text-lg font-bold text-blue-800">
+                                                {formatShortDate(currentWeekStart)} - {formatShortDate(weekEndDate)} {weekEndDate.getFullYear() + 543}
+                                            </div>
+                                            <div className="text-xs text-blue-500 font-medium">สัปดาห์ปัจจุบัน</div>
+                                        </div>
+                                        <button onClick={() => handleWeekChange(1)} className="p-2 hover:bg-white rounded-full text-blue-600 transition-colors shadow-sm">
+                                            <ChevronRightIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
                                     {/* Real-time Table */}
                                     <div className="overflow-x-auto border rounded-lg bg-white">
                                         <table className="w-full text-sm text-left">
-                                            <thead className="bg-slate-100 text-slate-600 font-semibold border-b">
+                                            <thead className="bg-white text-slate-800 border-b border-slate-300">
                                                 <tr>
-                                                    <th className="px-4 py-3 min-w-[100px]">วัน</th>
+                                                    <th className="px-2 py-3 w-[120px] border-r border-slate-300 bg-slate-50">วัน/เวลา</th>
                                                     {TIME_SLOTS.map(t => (
-                                                        <th key={t.label} className="px-4 py-3 border-l text-center">{t.label}</th>
+                                                        <th key={t.label} className="px-2 py-3 border-r border-slate-300 text-center min-w-[140px]">
+                                                            <div className="text-sm font-bold">{t.label}</div>
+                                                            <div className="text-xs font-normal text-slate-500">{t.sub}</div>
+                                                        </th>
                                                     ))}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
                                                 {isLoading && serverBookings.length === 0 ? (
-                                                    <tr><td colSpan="4" className="text-center py-8 text-slate-400">กำลังโหลดข้อมูลตาราง...</td></tr>
+                                                    <tr><td colSpan="5" className="text-center py-8 text-slate-400">กำลังโหลดข้อมูลตาราง...</td></tr>
                                                 ) : (
-                                                    DAYS.map((day) => (
-                                                        <tr key={day.label} className="hover:bg-slate-50">
-                                                            <td className="px-4 py-3 font-medium bg-slate-50">{day.label}</td>
-                                                            {TIME_SLOTS.map(slot => {
-                                                                const busy = isSlotBusy(
-                                                                    serverBookings,
-                                                                    day.index,
-                                                                    slot.start,
-                                                                    slot.end,
-                                                                    formData.room
-                                                                );
-                                                                return (
-                                                                    <td key={slot.label} className="px-4 py-3 border-l text-center h-16 align-middle">
-                                                                        {busy ? (
-                                                                            <span className="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded border border-red-200 w-full">
-                                                                                ไม่ว่าง
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="inline-block bg-green-50 text-green-600 text-xs px-2 py-1 rounded border border-green-200 w-full opacity-50">
-                                                                                ว่าง
-                                                                            </span>
-                                                                        )}
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                        </tr>
-                                                    ))
+                                                    DAYS.map((day) => {
+                                                        // คำนวณวันที่จริงของ Row นี้ (จันทร์ + Offset)
+                                                        const rowDate = new Date(currentWeekStart);
+                                                        rowDate.setDate(currentWeekStart.getDate() + day.offset);
+                                                        const isToday = isSameDay(new Date(), rowDate);
+
+                                                        return (
+                                                            <tr key={day.label} className={`hover:bg-slate-50 ${isToday ? 'bg-blue-50/30' : ''}`}>
+                                                                <td className="px-3 py-3 font-medium bg-slate-50 border-r border-slate-200">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-sm font-bold">{day.label}</span>
+                                                                        <span className={`text-xs ${isToday ? 'text-blue-600 font-bold' : 'text-slate-500'}`}>
+                                                                            {formatShortDate(rowDate)}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                {TIME_SLOTS.map(slot => {
+                                                                    // ส่ง rowDate (วันที่จริง) ไปเช็ค
+                                                                    const busy = isSlotBusy(
+                                                                        serverBookings,
+                                                                        rowDate,
+                                                                        slot.start,
+                                                                        slot.end,
+                                                                        formData.room
+                                                                    );
+                                                                    return (
+                                                                        <td key={slot.label} className="px-4 py-3 border-l text-center h-16 align-middle">
+                                                                            {busy ? (
+                                                                                <span className="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded border border-red-200 w-full shadow-sm">
+                                                                                    ไม่ว่าง
+                                                                                </span>
+                                                                            ) : (
+                                                                                <div className="group relative w-full h-full flex items-center justify-center">
+                                                                                    <span className="inline-block text-slate-300 text-xs">-</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
+                                                                    );
+                                                                })}
+                                                            </tr>
+                                                        );
+                                                    })
                                                 )}
                                             </tbody>
                                         </table>
@@ -373,7 +433,6 @@ const handleSubmit = async () => {
                                             </div>
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 mb-1">ห้องที่เลือก</label>
-                                                {/* แสดงห้องที่เลือกมาจาก Step 1 แบบ Readonly หรือให้เปลี่ยนได้ก็ได้ (ในที่นี้ทำแบบเลือกได้แต่ Highlight อันเดิม) */}
                                                 <div className="space-y-2">
                                                     {ROOMS.map((room) => (
                                                         <div key={room.id} onClick={() => setFormData({...formData, room: room.id})} className={`p-3 rounded-lg border cursor-pointer flex items-center justify-between ${formData.room === room.id ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200 hover:bg-slate-50'}`}>
@@ -389,19 +448,57 @@ const handleSubmit = async () => {
                                         </div>
                                         <div className="space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
+                                                
+                                                {/* --- แก้ไขส่วนเลือกเวลาเริ่ม --- */}
                                                 <div>
                                                     <label className="block text-sm font-medium text-slate-700 mb-1">เริ่มเวลา</label>
-                                                    <select className="w-full border p-2.5 rounded-lg" value={formData.timeStart} onChange={(e) => setFormData({...formData, timeStart: e.target.value})}>
-                                                        <option value="">เลือก</option><option value="09:00">09:00</option><option value="13:00">13:00</option><option value="17:00">17:00</option>
+                                                    <select 
+                                                        className="w-full border p-2.5 rounded-lg max-h-40" 
+                                                        value={formData.timeStart} 
+                                                        onChange={(e) => setFormData({...formData, timeStart: e.target.value})}
+                                                    >
+                                                        <option value="">เลือก</option>
+                                                        {/* สร้างตัวเลือก 09:00 - 20:00 */}
+                                                        {Array.from({length: 12}, (_, i) => i + 9).map(hour => (
+                                                            <option key={hour} value={`${hour < 10 ? '0'+hour : hour}:00`}>
+                                                                {`${hour < 10 ? '0'+hour : hour}:00`}
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                 </div>
+
+                                                {/* --- แก้ไขส่วนเลือกเวลาจบ --- */}
                                                 <div>
                                                     <label className="block text-sm font-medium text-slate-700 mb-1">ถึงเวลา</label>
-                                                    <select className="w-full border p-2.5 rounded-lg" value={formData.timeEnd} onChange={(e) => setFormData({...formData, timeEnd: e.target.value})}>
-                                                        <option value="">เลือก</option><option value="12:00">12:00</option><option value="16:00">16:00</option><option value="20:40">20:40</option>
+                                                    <select 
+                                                        className="w-full border p-2.5 rounded-lg" 
+                                                        value={formData.timeEnd} 
+                                                        onChange={(e) => setFormData({...formData, timeEnd: e.target.value})}
+                                                    >
+                                                        <option value="">เลือก</option>
+                                                        {/* สร้างตัวเลือกเวลาจบแบบละเอียด ถึง 20:40 */}
+                                                        {[
+                                                            "09:30", "10:00", "10:30", 
+                                                            "11:00", "11:30", "12:00", "12:30", 
+                                                            "13:00", "13:30", "14:00", "14:30", 
+                                                            "15:00", "15:30", "16:00", "16:30", 
+                                                            "17:00", "17:30", "18:00", "18:30", 
+                                                            "19:00", "19:30", "20:00", "20:30", "20:40"
+                                                        ].map(time => (
+                                                            // กรองไม่ให้เลือกเวลาที่น้อยกว่าเวลาเริ่ม (Optional: ลบเงื่อนไข disabled ออกได้ถ้าอยากให้เลือกอิสระทั้งหมด)
+                                                            <option 
+                                                                key={time} 
+                                                                value={time}
+                                                                disabled={formData.timeStart && time <= formData.timeStart}
+                                                                className={formData.timeStart && time <= formData.timeStart ? "text-gray-300" : ""}
+                                                            >
+                                                                {time}
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                             </div>
+
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 mb-1">ชื่อผู้จอง</label>
                                                 <input type="text" placeholder="ชื่อ-สกุล" className="w-full border p-2.5 rounded-lg" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
