@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Room Booking (Weekly View)</title>
+    <title>Smart Room Booking (Scrollable View)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -15,6 +15,12 @@
         body { font-family: 'Sarabun', sans-serif; }
         .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Custom Scrollbar เพื่อความสวยงาม */
+        .custom-scrollbar::-webkit-scrollbar { height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -48,12 +54,21 @@
             { id: '2-304', name: 'ห้องบรรยาย 2-304', capacity: 60, building: 'อาคาร 2', type: 'Lecture', icon: <FileTextIcon className="w-5 h-5" /> },
         ];
 
-        const TIME_SLOTS = [
-            { label: "09.00–11.30", sub: "3 หน่วยกิต (150 นาที)", start: "09:00", end: "11:30" },
-            { label: "12.00–14.30", sub: "3 หน่วยกิต (150 นาที)", start: "12:00", end: "14:30" },
-            { label: "15.00–17.30", sub: "3 หน่วยกิต (150 นาที)", start: "15:00", end: "17:30" },
-            { label: "18.00–20.30", sub: "3 หน่วยกิต (150 นาที)", start: "18:00", end: "20:30" },
-        ];
+        // 🟢 สร้างช่วงเวลาทีละ 30 นาที อัตโนมัติ (08:00 - 20:30)
+        const generateTimeSlots = () => {
+            const slots = [];
+            let startHour = 8;
+            let endHour = 20;
+            
+            for (let h = startHour; h <= endHour; h++) {
+                // รอบ :00
+                slots.push({ label: `${h < 10 ? '0'+h : h}:00`, val: (h * 60) });
+                // รอบ :30
+                slots.push({ label: `${h < 10 ? '0'+h : h}:30`, val: (h * 60) + 30 });
+            }
+            return slots;
+        };
+        const TIME_SLOTS = generateTimeSlots();
 
         const DAYS = [
             { label: "จันทร์", offset: 0 },
@@ -66,77 +81,54 @@
         ];
 
         // --- HELPERS ---
-
-        // แก้ไขใหม่: รองรับทั้ง String ธรรมดา และ ISO Date String จาก Google Sheets
         const parseTime = (val) => {
             if (!val) return 0;
-            
-            // กรณี Google ส่งมาเป็นรูปแบบ Date String (มีตัว T) เช่น "1899-12-30T09:00:00.000Z"
+            // กรณี ISO Date String (เช่นจาก Google Sheets)
             if (typeof val === 'string' && val.includes('T')) {
                 const dateObj = new Date(val);
-                // ต้องใช้ getUTCHours ถ้า time zone ใน sheet เป็น UTC หรือใช้ getHours ตามปกติ
-                // แนะนำใช้ getHours() ปกติเพราะ Browser จะแปลง Local ให้
                 return (dateObj.getHours() * 60) + dateObj.getMinutes();
             }
-
-            // กรณีส่งมาเป็น String ธรรมดา "09:00"
+            // กรณี String "HH:mm"
             if (typeof val === 'string' && val.includes(':')) {
                 const [h, m] = val.split(':').map(Number);
                 return (h * 60) + m;
             }
-            
             return 0;
         };
 
-        // หาว่าเป็นวันเดียวกันหรือไม่ (แก้ให้รองรับ Date Object ที่อาจมี Timezone ต่างกัน)
         const isSameDay = (d1, d2) => {
             return d1.getFullYear() === d2.getFullYear() &&
                    d1.getMonth() === d2.getMonth() &&
                    d1.getDate() === d2.getDate();
         };
 
-        // เช็คเวลาชนกัน โดยใช้ตัวเลขนาที (แม่นยำกว่า String)
-        const isTimeOverlap = (s1, e1, s2, e2) => {
-            const start1 = parseTime(s1);
-            const end1 = parseTime(e1);
-            const start2 = parseTime(s2);
-            const end2 = parseTime(e2);
-            
-            return start1 < end2 && start2 < end1;
-        };
-
-        const isSlotBusy = (bookings, targetDate, slotStart, slotEnd, roomId) => {
+        const isSlotBusy = (bookings, targetDate, slotTimeVal, roomId) => {
             if (!bookings || !Array.isArray(bookings)) return false; 
             
             return bookings.some(b => {
-                // ต้องเป็น status 'approved' เท่านั้น
                 if (b.status !== 'approved') return false; 
                 
-                // แปลงวันที่จาก String/ISO เป็น Date Object
                 const bookingDate = new Date(b.date);
-                
-                // เช็ค: วันเดียวกัน + ห้องเดียวกัน + เวลาชนกัน
+                const startVal = parseTime(b.timeStart);
+                const endVal = parseTime(b.timeEnd);
+
                 return (
                     isSameDay(bookingDate, targetDate) && 
-                    // แปลง roomId เป็น String ทั้งคู่เพื่อความชัวร์
                     String(b.room) === String(roomId) &&
-                    isTimeOverlap(b.timeStart, b.timeEnd, slotStart, slotEnd)
+                    slotTimeVal >= startVal && slotTimeVal < endVal
                 );
             });
         };
 
-        // หา "วันจันทร์" ของสัปดาห์นั้นๆ จากวันที่ปัจจุบัน
         const getMonday = (d) => {
             d = new Date(d);
             const day = d.getDay();
-            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
             return new Date(d.setDate(diff));
         };
 
         const App = () => {
             const [currentStep, setCurrentStep] = React.useState(1);
-            
-            // *State สำหรับเลือกสัปดาห์ (เก็บวันจันทร์ของสัปดาห์นั้น)*
             const [currentWeekStart, setCurrentWeekStart] = React.useState(getMonday(new Date()));
 
             const [formData, setFormData] = React.useState({
@@ -163,7 +155,6 @@
                 return dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
             };
 
-            // ฟังก์ชันเลื่อนสัปดาห์
             const handleWeekChange = (offset) => {
                 const newDate = new Date(currentWeekStart);
                 newDate.setDate(newDate.getDate() + (offset * 7));
@@ -180,6 +171,7 @@
                     const textData = await response.text();
                     try {
                         const data = JSON.parse(textData);
+                        console.log("Data from Sheet:", data);
                         if (Array.isArray(data)) {
                             setServerBookings(data);
                         } else {
@@ -245,8 +237,6 @@
 
             const displayBookings = serverBookings.length > 0 ? serverBookings : myBookings;
             const recentBookings = [...displayBookings].sort((a, b) => String(b.id).localeCompare(String(a.id))).slice(0, 5);
-
-            // คำนวณวันที่สิ้นสุดสัปดาห์เพื่อแสดงผล
             const weekEndDate = new Date(currentWeekStart);
             weekEndDate.setDate(weekEndDate.getDate() + 6);
 
@@ -261,7 +251,7 @@
                                 </div>
                                 <div>
                                     <h1 className="text-xl font-bold">Smart Room Booking</h1>
-                                    <p className="text-blue-100 text-xs">มหาวิทยาลัยศรีปทุม ขอนแก่น (Weekly View)</p>
+                                    <p className="text-blue-100 text-xs">มหาวิทยาลัยศรีปทุม ขอนแก่น (Real-time)</p>
                                 </div>
                             </div>
                             <div className="text-sm bg-blue-700 px-3 py-1 rounded-full hidden sm:block">
@@ -329,7 +319,7 @@
                                         </div>
                                     </div>
 
-                                    {/* --- Week Selector (New Feature) --- */}
+                                    {/* --- Week Selector --- */}
                                     <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-100 mb-4">
                                         <button onClick={() => handleWeekChange(-1)} className="p-2 hover:bg-white rounded-full text-blue-600 transition-colors shadow-sm">
                                             <ChevronLeftIcon className="w-5 h-5" />
@@ -345,58 +335,65 @@
                                         </button>
                                     </div>
 
-                                    {/* Real-time Table */}
-                                    <div className="overflow-x-auto border rounded-lg bg-white">
-                                        <table className="w-full text-sm text-left">
-                                            <thead className="bg-white text-slate-800 border-b border-slate-300">
+                                    {/* --- T A B L E (แก้ไขใหม่: แบบ Scroll) --- */}
+                                    <div className="overflow-x-auto border rounded-lg bg-white shadow-inner custom-scrollbar relative">
+                                        {/* กำหนด min-width 2400px เพื่อให้ตารางยาวมากพอที่จะ Scroll */}
+                                        <table className="w-full text-sm text-left min-w-[2400px] border-collapse">
+                                            <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10 shadow-sm">
                                                 <tr>
-                                                    <th className="px-2 py-3 w-[120px] border-r border-slate-300 bg-slate-50">วัน/เวลา</th>
+                                                    {/* Sticky Column ซ้ายสุด: วันที่ */}
+                                                    <th className="px-2 py-3 w-[100px] border-r border-slate-300 bg-slate-100 sticky left-0 z-20 text-center shadow-md">
+                                                        วัน/เวลา
+                                                    </th>
+                                                    {/* Loop เวลา */}
                                                     {TIME_SLOTS.map(t => (
-                                                        <th key={t.label} className="px-2 py-3 border-r border-slate-300 text-center min-w-[140px]">
-                                                            <div className="text-sm font-bold">{t.label}</div>
-                                                            <div className="text-xs font-normal text-slate-500">{t.sub}</div>
+                                                        <th key={t.label} className="px-1 py-2 border-r border-slate-300 text-center w-[60px]">
+                                                            <div className="text-xs font-bold text-slate-600">{t.label}</div>
                                                         </th>
                                                     ))}
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y">
+                                            <tbody className="divide-y divide-slate-200">
                                                 {isLoading && serverBookings.length === 0 ? (
-                                                    <tr><td colSpan="5" className="text-center py-8 text-slate-400">กำลังโหลดข้อมูลตาราง...</td></tr>
+                                                    <tr><td colSpan={TIME_SLOTS.length + 1} className="text-center py-10 text-slate-400">กำลังโหลดข้อมูล...</td></tr>
                                                 ) : (
                                                     DAYS.map((day) => {
-                                                        // คำนวณวันที่จริงของ Row นี้ (จันทร์ + Offset)
                                                         const rowDate = new Date(currentWeekStart);
                                                         rowDate.setDate(currentWeekStart.getDate() + day.offset);
                                                         const isToday = isSameDay(new Date(), rowDate);
 
                                                         return (
-                                                            <tr key={day.label} className={`hover:bg-slate-50 ${isToday ? 'bg-blue-50/30' : ''}`}>
-                                                                <td className="px-3 py-3 font-medium bg-slate-50 border-r border-slate-200">
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-sm font-bold">{day.label}</span>
-                                                                        <span className={`text-xs ${isToday ? 'text-blue-600 font-bold' : 'text-slate-500'}`}>
+                                                            <tr key={day.label} className={`hover:bg-blue-50/50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
+                                                                {/* Sticky Cell ซ้ายสุด */}
+                                                                <td className="px-2 py-3 font-medium bg-slate-50 border-r border-slate-300 sticky left-0 z-20 text-center shadow-md">
+                                                                    <div className="flex flex-col items-center">
+                                                                        <span className="text-sm font-bold text-slate-700">{day.label}</span>
+                                                                        <span className={`text-xs mt-1 px-2 py-0.5 rounded-full ${isToday ? 'bg-blue-600 text-white' : 'text-slate-500 bg-slate-200'}`}>
                                                                             {formatShortDate(rowDate)}
                                                                         </span>
                                                                     </div>
                                                                 </td>
+                                                                
+                                                                {/* ช่องเวลา 30 นาที */}
                                                                 {TIME_SLOTS.map(slot => {
-                                                                    // ส่ง rowDate (วันที่จริง) ไปเช็ค
                                                                     const busy = isSlotBusy(
                                                                         serverBookings,
                                                                         rowDate,
-                                                                        slot.start,
-                                                                        slot.end,
+                                                                        slot.val,
                                                                         formData.room
                                                                     );
                                                                     return (
-                                                                        <td key={slot.label} className="px-4 py-3 border-l text-center h-16 align-middle">
+                                                                        <td key={slot.label} className={`border-r border-slate-100 p-0 relative h-14 ${busy ? 'bg-red-50' : ''}`}>
                                                                             {busy ? (
-                                                                                <span className="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded border border-red-200 w-full shadow-sm">
-                                                                                    ไม่ว่าง
-                                                                                </span>
+                                                                                <div className="absolute inset-0 m-0.5 bg-red-500 rounded-sm opacity-80 flex items-center justify-center group cursor-not-allowed">
+                                                                                    {/* Tooltip */}
+                                                                                    <div className="hidden group-hover:block absolute bottom-full mb-1 z-30 bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                                                                                        ไม่ว่าง
+                                                                                    </div>
+                                                                                </div>
                                                                             ) : (
-                                                                                <div className="group relative w-full h-full flex items-center justify-center">
-                                                                                    <span className="inline-block text-slate-300 text-xs">-</span>
+                                                                                <div className="w-full h-full flex items-center justify-center">
+                                                                                    <div className="w-px h-2 bg-slate-200"></div>
                                                                                 </div>
                                                                             )}
                                                                         </td>
@@ -448,8 +445,6 @@
                                         </div>
                                         <div className="space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
-                                                
-                                                {/* --- แก้ไขส่วนเลือกเวลาเริ่ม --- */}
                                                 <div>
                                                     <label className="block text-sm font-medium text-slate-700 mb-1">เริ่มเวลา</label>
                                                     <select 
@@ -458,7 +453,6 @@
                                                         onChange={(e) => setFormData({...formData, timeStart: e.target.value})}
                                                     >
                                                         <option value="">เลือก</option>
-                                                        {/* สร้างตัวเลือก 09:00 - 20:00 */}
                                                         {Array.from({length: 12}, (_, i) => i + 9).map(hour => (
                                                             <option key={hour} value={`${hour < 10 ? '0'+hour : hour}:00`}>
                                                                 {`${hour < 10 ? '0'+hour : hour}:00`}
@@ -466,8 +460,6 @@
                                                         ))}
                                                     </select>
                                                 </div>
-
-                                                {/* --- แก้ไขส่วนเลือกเวลาจบ --- */}
                                                 <div>
                                                     <label className="block text-sm font-medium text-slate-700 mb-1">ถึงเวลา</label>
                                                     <select 
@@ -476,7 +468,6 @@
                                                         onChange={(e) => setFormData({...formData, timeEnd: e.target.value})}
                                                     >
                                                         <option value="">เลือก</option>
-                                                        {/* สร้างตัวเลือกเวลาจบแบบละเอียด ถึง 20:40 */}
                                                         {[
                                                             "09:30", "10:00", "10:30", 
                                                             "11:00", "11:30", "12:00", "12:30", 
@@ -485,7 +476,6 @@
                                                             "17:00", "17:30", "18:00", "18:30", 
                                                             "19:00", "19:30", "20:00", "20:30", "20:40"
                                                         ].map(time => (
-                                                            // กรองไม่ให้เลือกเวลาที่น้อยกว่าเวลาเริ่ม (Optional: ลบเงื่อนไข disabled ออกได้ถ้าอยากให้เลือกอิสระทั้งหมด)
                                                             <option 
                                                                 key={time} 
                                                                 value={time}
@@ -498,7 +488,6 @@
                                                     </select>
                                                 </div>
                                             </div>
-
                                             <div>
                                                 <label className="block text-sm font-medium text-slate-700 mb-1">ชื่อผู้จอง</label>
                                                 <input type="text" placeholder="ชื่อ-สกุล" className="w-full border p-2.5 rounded-lg" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
