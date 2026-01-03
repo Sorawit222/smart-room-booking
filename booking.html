@@ -165,7 +165,7 @@ const fetchLatestStatus = async () => {
                 try {
                     await fetch(API_URL, {
                         method: 'POST',
-                        mode: 'no-cors',
+                       
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(newBooking)
                     });
@@ -483,4 +483,5 @@ const fetchLatestStatus = async () => {
         root.render(<App />);
     </script>
 </body>
+
 </html>
