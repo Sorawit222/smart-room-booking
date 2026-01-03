@@ -3,15 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Room Booking - มหาวิทยาลัยศรีปทุม ขอนแก่น</title>
+    <title>Smart Room Booking (Real-time Integrated)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -25,16 +22,15 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- ส่วนที่ 0: CONFIGURATION (สำคัญมาก: ใส่ลิงก์ Script ของคุณที่นี่) ---
+        // --- CONFIGURATION ---
         const API_URL = 'https://script.google.com/macros/s/AKfycbzjmL3ZNd3a6Syiv720O3zfNAZYasTuQneB6LiQc5CIbc21STCpWJTJykxlzZ6E_Q2Z/exec';
 
-        // --- ส่วนที่ 1: ไอคอน ---
+        // --- ICONS ---
         const Icon = ({ path, className }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
                 {path}
             </svg>
         );
-
         const CalendarIcon = (props) => <Icon {...props} path={<><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></>} />;
         const CheckCircleIcon = (props) => <Icon {...props} path={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></>} />;
         const SearchIcon = (props) => <Icon {...props} path={<><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></>} />;
@@ -44,27 +40,63 @@
         const ChevronRightIcon = (props) => <Icon {...props} path={<polyline points="9 18 15 12 9 6"></polyline>} />;
         const ChevronLeftIcon = (props) => <Icon {...props} path={<polyline points="15 18 9 12 15 6"></polyline>} />;
         const RefreshIcon = (props) => <Icon {...props} path={<><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></>} />;
-        // --- ส่วนที่ 2: ข้อมูลจำลอง ---
+
+        // --- CONSTANTS ---
         const ROOMS = [
             { id: '1-201', name: 'ห้อง 1-201 (ห้อง Mac)', capacity: 40, building: 'อาคาร 1', type: 'Lab', icon: <MonitorIcon className="w-5 h-5" /> },
             { id: '3-101', name: 'ห้องประชุมพุคยาภรณ์ 1', capacity: 360, building: 'อาคาร 3', type: 'Meeting', icon: <UsersIcon className="w-5 h-5" /> },
             { id: '2-304', name: 'ห้องบรรยาย 2-304', capacity: 60, building: 'อาคาร 2', type: 'Lecture', icon: <FileTextIcon className="w-5 h-5" /> },
         ];
 
-        // --- ส่วนที่ 3: แอปพลิเคชันหลัก ---
+        const TIME_SLOTS = [
+            { label: "09.00–11.30", start: "09:00", end: "11:30" },
+            { label: "12.00–14.30", start: "12:00", end: "14:30" },
+            { label: "15.00–17.30", start: "15:00", end: "17:30" }
+        ];
+
+        const DAYS = [
+            { label: "จันทร์", index: 1 },
+            { label: "อังคาร", index: 2 },
+            { label: "พุธ", index: 3 },
+            { label: "พฤหัส", index: 4 },
+            { label: "ศุกร์", index: 5 }
+        ];
+
+        // --- HELPERS FROM REAL-TIME CODE ---
+        const isTimeOverlap = (s1, e1, s2, e2) => {
+            return s1 < e2 && s2 < e1;
+        };
+
+        // แก้ไขฟังก์ชันนี้ (อยู่ด้านบนๆ ของ script)
+const isSlotBusy = (bookings, dayIndex, slotStart, slotEnd, roomId) => {
+    // เพิ่มการเช็ค !Array.isArray(bookings) เข้าไป
+    if (!bookings || !Array.isArray(bookings)) return false; 
+    
+    return bookings.some(b => {
+        if (b.status !== 'approved') return false; 
+        const d = new Date(b.date).getDay();
+        return (
+            d === dayIndex &&
+            b.room === roomId &&
+            isTimeOverlap(b.timeStart, b.timeEnd, slotStart, slotEnd)
+        );
+    });
+};
+
+        // --- MAIN APP ---
         const App = () => {
             const [currentStep, setCurrentStep] = React.useState(1);
             const [formData, setFormData] = React.useState({
                 date: '',
-                room: '',
+                room: '1-201', // Default room
                 timeStart: '',
                 timeEnd: '',
                 name: '',
                 subject: '',
                 teacher: ''
             });
-            const [myBookings, setMyBookings] = React.useState([]); // เก็บข้อมูลที่เพิ่งจอง
-            const [serverBookings, setServerBookings] = React.useState([]); // เก็บข้อมูลจริงจาก Server
+            const [myBookings, setMyBookings] = React.useState([]);
+            const [serverBookings, setServerBookings] = React.useState([]); 
             const [notification, setNotification] = React.useState(null);
             const [isLoading, setIsLoading] = React.useState(false);
 
@@ -77,21 +109,43 @@
             const handleNext = () => { if (currentStep < 4) setCurrentStep(currentStep + 1); };
             const handleBack = () => { if (currentStep > 1) setCurrentStep(currentStep - 1); };
             
-            // ฟังก์ชันดึงข้อมูลล่าสุดจาก Server
-            const fetchLatestStatus = async () => {
-                setIsLoading(true);
-                try {
-                    const response = await fetch(API_URL + "?action=read"); // เพิ่ม action=read
-                    const data = await response.json();
-                    setServerBookings(data); // อัปเดตข้อมูลจริง
-                } catch (error) {
-                    console.error("Fetch error:", error);
-                } finally {
-                    setIsLoading(false);
-                }
-            };
+           // แก้ไขฟังก์ชันนี้ในโค้ดเดิม
+const fetchLatestStatus = async () => {
+    setIsLoading(true);
+    try {
+        const response = await fetch(API_URL + "?action=read");
+        
+        // อ่านเป็น text ก่อนเพื่อกัน error กรณี Google ส่ง HTML มา
+        const textData = await response.text();
+        
+        try {
+            const data = JSON.parse(textData);
+            
+            // เช็คว่าเป็น Array จริงๆ ถึงจะยอมให้ set state
+            if (Array.isArray(data)) {
+                setServerBookings(data);
+            } else {
+                console.warn("Data format is not an array:", data);
+                setServerBookings([]); // กันหน้าขาวด้วยการใส่ array ว่าง
+            }
+        } catch (jsonError) {
+            console.error("JSON Parse Error. Server returned:", textData);
+            // กรณีนี้มักเกิดจาก Google Script error หรือ Permission ไม่ผ่าน
+        }
 
-            // เมื่อเข้าสู่ขั้นตอนที่ 4 ให้ดึงข้อมูลล่าสุดทันที
+    } catch (error) {
+        console.error("Fetch error:", error);
+    } finally {
+        setIsLoading(false);
+    }
+};
+
+            // โหลดข้อมูลทันทีเมื่อเปิดเว็บ (เพื่อใช้แสดงในตาราง Step 1)
+            React.useEffect(() => {
+                fetchLatestStatus();
+            }, []);
+
+            // โหลดซ้ำเมื่อไปหน้าสุดท้าย
             React.useEffect(() => {
                 if (currentStep === 4) {
                     fetchLatestStatus();
@@ -109,23 +163,16 @@
                 setIsLoading(true);
 
                 try {
-                    // ส่งข้อมูลไปที่ Sheet (Write)
                     await fetch(API_URL, {
                         method: 'POST',
-                        mode: 'no-cors', // สำคัญ: เพื่อให้ส่งข้ามโดเมนได้
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(newBooking)
                     });
 
-                    // อัปเดต Local State (Optimistic UI)
                     setMyBookings([newBooking]); 
-                    
                     setNotification('บันทึกการจองสำเร็จ! กรุณารอเจ้าหน้าที่ตรวจสอบ');
-                    setCurrentStep(4); // ไปหน้าสถานะ
-                    
-                    // รอสักนิดแล้วดึงข้อมูลใหม่ (เผื่อ Google Sheet อัปเดตทัน)
+                    setCurrentStep(4);
                     setTimeout(() => fetchLatestStatus(), 2000);
 
                 } catch (error) {
@@ -135,16 +182,9 @@
                 }
             };
 
-            // แสดงรายการจอง (รวมข้อมูลที่เพิ่งส่ง + ข้อมูลเก่าที่โหลดมา)
+            // รวมข้อมูลเพื่อแสดงใน Step 4
             const displayBookings = serverBookings.length > 0 ? serverBookings : myBookings;
-            
-            // กรองแสดงเฉพาะของ user ปัจจุบัน (ในระบบจริงควรใช้ User ID แต่ demo นี้ใช้การกรองคร่าวๆ หรือแสดงทั้งหมด)
-            // *ใน Demo นี้จะแสดง 5 รายการล่าสุดเพื่อให้เห็นความเคลื่อนไหว*
-            const recentBookings = [...displayBookings].sort((a, b) => {
-                // พยายาม sort ตาม ID หรือ Date (แปลงเป็นเลขเพื่อ sort)
-                return String(b.id).localeCompare(String(a.id));
-            }).slice(0, 5);
-
+            const recentBookings = [...displayBookings].sort((a, b) => String(b.id).localeCompare(String(a.id))).slice(0, 5);
 
             return (
                 <div className="min-h-screen flex flex-col">
@@ -157,7 +197,7 @@
                                 </div>
                                 <div>
                                     <h1 className="text-xl font-bold">Smart Room Booking</h1>
-                                    <p className="text-blue-100 text-xs">มหาวิทยาลัยศรีปทุม ขอนแก่น (Prototype)</p>
+                                    <p className="text-blue-100 text-xs">มหาวิทยาลัยศรีปทุม ขอนแก่น (Real-time)</p>
                                 </div>
                             </div>
                             <div className="text-sm bg-blue-700 px-3 py-1 rounded-full hidden sm:block">
@@ -179,7 +219,7 @@
                                             {step}
                                         </div>
                                         <span className="text-xs font-medium mt-2 hidden sm:block text-center w-24">
-                                            {step === 1 && "ตรวจสอบห้อง"}
+                                            {step === 1 && "เช็คห้องว่าง"}
                                             {step === 2 && "กรอกข้อมูล"}
                                             {step === 3 && "ยืนยัน"}
                                             {step === 4 && "สถานะ"}
@@ -191,55 +231,92 @@
 
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[500px] flex flex-col">
                             
-                            {/* Step 1: Check Availability */}
+                            {/* Step 1: Check Availability (INTEGRATED REAL-TIME LOGIC) */}
                             {currentStep === 1 && (
                                 <div className="p-6 animate-fadeIn">
-                                    <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-2">
-                                        <SearchIcon className="w-6 h-6 text-blue-500" />
-                                        ขั้นตอนที่ 1: ตรวจสอบตารางห้องว่าง
-                                    </h2>
-                                    <p className="text-slate-500 mb-6">ตรวจสอบตารางเรียนเพื่อหลีกเลี่ยงเวลาชนกัน</p>
+                                    <div className="flex justify-between items-start mb-4">
+                                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                                            <SearchIcon className="w-6 h-6 text-blue-500" />
+                                            ขั้นตอนที่ 1: ตรวจสอบตารางห้องว่าง
+                                        </h2>
+                                        <button onClick={fetchLatestStatus} className="text-blue-600 text-sm flex items-center hover:underline">
+                                           <RefreshIcon className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} /> รีเฟรช
+                                        </button>
+                                    </div>
                                     
-                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 flex items-start gap-3">
-                                        <FileTextIcon className="w-5 h-5 text-green-600 mt-0.5" />
-                                        <div>
-                                            <h3 className="font-semibold text-green-800">ตารางห้องเรียน ภาค 2-68 (Mockup)</h3>
-                                            <p className="text-sm text-green-700">แสดงข้อมูลตัวอย่าง (ยังไม่ Real-time 100%)</p>
+                                    <p className="text-slate-500 mb-6">ข้อมูลอัปเดต Real-time จากระบบอนุมัติ กรุณาเลือกห้องที่ต้องการตรวจสอบ</p>
+                                    
+                                    {/* Room Selector inside Step 1 */}
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">เลือกห้องที่ต้องการดูตาราง:</label>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            {ROOMS.map((r) => (
+                                                <div 
+                                                    key={r.id} 
+                                                    onClick={() => setFormData({...formData, room: r.id})}
+                                                    className={`cursor-pointer p-3 rounded-lg border flex items-center gap-3 transition-all ${formData.room === r.id ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200 hover:bg-slate-50'}`}
+                                                >
+                                                    <div className={`p-2 rounded-full ${formData.room === r.id ? 'bg-blue-200 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {r.icon}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-semibold text-sm">{r.name}</div>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
 
-                                    <div className="overflow-x-auto border rounded-lg">
+                                    {/* Real-time Table */}
+                                    <div className="overflow-x-auto border rounded-lg bg-white">
                                         <table className="w-full text-sm text-left">
                                             <thead className="bg-slate-100 text-slate-600 font-semibold border-b">
                                                 <tr>
-                                                    <th className="px-4 py-3">วัน/เวลา</th>
-                                                    <th className="px-4 py-3 border-l">09.00-11.30</th>
-                                                    <th className="px-4 py-3 border-l">12.00-14.30</th>
-                                                    <th className="px-4 py-3 border-l">15.00-17.30</th>
+                                                    <th className="px-4 py-3 min-w-[100px]">วัน</th>
+                                                    {TIME_SLOTS.map(t => (
+                                                        <th key={t.label} className="px-4 py-3 border-l text-center">{t.label}</th>
+                                                    ))}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
-                                                {['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'].map((day, idx) => (
-                                                    <tr key={idx} className="hover:bg-slate-50">
-                                                        <td className="px-4 py-3 font-medium bg-slate-50">{day}</td>
-                                                        <td className="px-4 py-3 border-l relative h-16">
-                                                            {idx === 0 && <span className="block bg-red-100 text-red-700 text-xs p-1 rounded border border-red-200">ไม่ว่าง: ALB22667</span>}
-                                                        </td>
-                                                        <td className="px-4 py-3 border-l">
-                                                            {idx === 1 && <span className="block bg-red-100 text-red-700 text-xs p-1 rounded border border-red-200">ไม่ว่าง: DTV314</span>}
-                                                        </td>
-                                                        <td className="px-4 py-3 border-l">
-                                                            {idx === 0 && <span className="block bg-red-100 text-red-700 text-xs p-1 rounded border border-red-200">ไม่ว่าง: OCM222</span>}
-                                                        </td>
-                                                    </tr>
-                                                ))}
+                                                {isLoading && serverBookings.length === 0 ? (
+                                                    <tr><td colSpan="4" className="text-center py-8 text-slate-400">กำลังโหลดข้อมูลตาราง...</td></tr>
+                                                ) : (
+                                                    DAYS.map((day) => (
+                                                        <tr key={day.label} className="hover:bg-slate-50">
+                                                            <td className="px-4 py-3 font-medium bg-slate-50">{day.label}</td>
+                                                            {TIME_SLOTS.map(slot => {
+                                                                const busy = isSlotBusy(
+                                                                    serverBookings,
+                                                                    day.index,
+                                                                    slot.start,
+                                                                    slot.end,
+                                                                    formData.room
+                                                                );
+                                                                return (
+                                                                    <td key={slot.label} className="px-4 py-3 border-l text-center h-16 align-middle">
+                                                                        {busy ? (
+                                                                            <span className="inline-block bg-red-100 text-red-700 text-xs px-2 py-1 rounded border border-red-200 w-full">
+                                                                                ไม่ว่าง
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="inline-block bg-green-50 text-green-600 text-xs px-2 py-1 rounded border border-green-200 w-full opacity-50">
+                                                                                ว่าง
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
                                     
                                     <div className="mt-6 flex justify-end">
                                         <button onClick={handleNext} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center shadow-md">
-                                            รับทราบและดำเนินการจองต่อ <ChevronRightIcon className="w-5 h-5 ml-1" />
+                                            เลือกห้องนี้และดำเนินการต่อ <ChevronRightIcon className="w-5 h-5 ml-1" />
                                         </button>
                                     </div>
                                 </div>
@@ -259,7 +336,8 @@
                                                 <input type="date" className="w-full border p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
                                             </div>
                                             <div>
-                                                <label className="block text-sm font-medium text-slate-700 mb-1">เลือกห้อง</label>
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">ห้องที่เลือก</label>
+                                                {/* แสดงห้องที่เลือกมาจาก Step 1 แบบ Readonly หรือให้เปลี่ยนได้ก็ได้ (ในที่นี้ทำแบบเลือกได้แต่ Highlight อันเดิม) */}
                                                 <div className="space-y-2">
                                                     {ROOMS.map((room) => (
                                                         <div key={room.id} onClick={() => setFormData({...formData, room: room.id})} className={`p-3 rounded-lg border cursor-pointer flex items-center justify-between ${formData.room === room.id ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200 hover:bg-slate-50'}`}>
@@ -387,7 +465,7 @@
                                         </table>
                                     </div>
                                     <div className="mt-6 flex justify-center">
-                                        <button onClick={() => { setFormData({ date: '', room: '', timeStart: '', timeEnd: '', name: '', subject: '', teacher: '' }); setNotification(null); setCurrentStep(1); }} className="text-blue-600 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-50">+ จองเพิ่ม</button>
+                                        <button onClick={() => { setFormData({ date: '', room: '1-201', timeStart: '', timeEnd: '', name: '', subject: '', teacher: '' }); setNotification(null); setCurrentStep(1); }} className="text-blue-600 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-50">+ จองเพิ่ม</button>
                                     </div>
                                 </div>
                             )}
@@ -395,7 +473,7 @@
                     </main>
                     
                     <footer className="bg-slate-800 text-slate-400 py-4 text-center text-sm">
-                        <p>© 2026 ระบบจองห้องอัจฉริยะ (Prototype)</p>
+                        <p>© 2026 ระบบจองห้องอัจฉริยะ (Real-time Integration)</p>
                     </footer>
                 </div>
             );
