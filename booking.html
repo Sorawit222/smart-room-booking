@@ -43,8 +43,7 @@
         const MonitorIcon = (props) => <Icon {...props} path={<><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></>} />;
         const ChevronRightIcon = (props) => <Icon {...props} path={<polyline points="9 18 15 12 9 6"></polyline>} />;
         const ChevronLeftIcon = (props) => <Icon {...props} path={<polyline points="15 18 9 12 15 6"></polyline>} />;
-        const RefreshIcon = (props) => <Icon {...props} path={<polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>} />;
-
+        const RefreshIcon = (props) => <Icon {...props} path={<><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></>} />;
         // --- ส่วนที่ 2: ข้อมูลจำลอง ---
         const ROOMS = [
             { id: '1-201', name: 'ห้อง 1-201 (ห้อง Mac)', capacity: 40, building: 'อาคาร 1', type: 'Lab', icon: <MonitorIcon className="w-5 h-5" /> },
@@ -408,3 +407,4 @@
 </body>
 
 </html>
+
